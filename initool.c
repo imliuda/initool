@@ -5,13 +5,13 @@
 #include <regex.h>
 #include <assert.h>
 
-#define RE_SECTION  "[[:blank:]]*\\[(.+?)\\][[:blank:]]*"
-#define RE_COMMENT  "[[:blank:]]*([;#]{1,1}).*"
-#define RE_ITEM     "[[:blank:]]*([a-zA-Z0-9_-]+)[[:blank:]]*=[[:blank:]]*(.*)"
-
 typedef enum {ADD, UPDATE, DELETE, GET} Action;
 typedef enum {ITEM, SECTION, COMMENT, UNKNOWN} LineType;
 typedef struct _Line Line;
+
+typedef struct {
+    char *delimiter;
+} Inicfg;
 
 struct _Line {
     char        *ptr;
@@ -19,6 +19,7 @@ struct _Line {
     void        *data;  // item name, section name
     void        *data1; // item value
     void        *data2; // item section
+    void        *data3; // delimiter
     Line        *prev;
     Line        *next;
 };
@@ -38,13 +39,19 @@ Line *list_append(Line *list, Line *line) {
     return list;
 }
 
-Line *ini_load(const char *filename) {
+Line *ini_load(const char *filename, const Inicfg *cfg) {
     FILE *fp = fopen(filename, "rw");
     size_t nouse;
     regmatch_t  pmatch[8];
     regex_t     preg_section;
     regex_t     preg_comment;
     regex_t     preg_item;
+
+    char *RE_SECTION = "[[:blank:]]*\\[(.+?)\\][[:blank:]]*";
+    char *RE_COMMENT = "[[:blank:]]*([;#]{1,1}).*";
+    char RE_ITEM[256];
+    sprintf(RE_ITEM, "[[:blank:]]*([a-zA-Z0-9_-]+)[[:blank:]]*([%s])[[:blank:]]*(.*)", cfg->delimiter);
+
     if (regcomp(&preg_comment, RE_COMMENT, REG_EXTENDED | REG_NEWLINE) != 0) {
         perror("regcomp");
     }
@@ -54,6 +61,7 @@ Line *ini_load(const char *filename) {
     if (regcomp(&preg_item, RE_ITEM, REG_EXTENDED | REG_NEWLINE) != 0) {
         perror("regcomp");
     }
+
     Line *list = list_new();
     char *cur_section = "";
     char *line = NULL;
@@ -67,13 +75,15 @@ Line *ini_load(const char *filename) {
             char *section = strndup(line + pmatch[1].rm_so, pmatch[1].rm_eo - pmatch[1].rm_so);
             cur_section = strdup(section);
             l->data = section;
-        } else if (regexec(&preg_item, line, 3, pmatch, REG_NOTBOL | REG_NOTEOL) == 0) {
+        } else if (regexec(&preg_item, line, 4, pmatch, REG_NOTBOL | REG_NOTEOL) == 0) {
             l->type = ITEM;
             char *item = strndup(line + pmatch[1].rm_so, pmatch[1].rm_eo - pmatch[1].rm_so);
-            char *value = strndup(line + pmatch[2].rm_so, pmatch[2].rm_eo - pmatch[2].rm_so);
+            char *value = strndup(line + pmatch[3].rm_so, pmatch[3].rm_eo - pmatch[3].rm_so);
+            char *delimiter = strndup(line + pmatch[2].rm_so, pmatch[2].rm_eo - pmatch[2].rm_so);
             l->data = item;
             l->data1 = value;
             l->data2 = strdup(cur_section);
+            l->data3 = delimiter;
         } else {
             l->type = UNKNOWN;
         }
@@ -115,10 +125,10 @@ void check_action(Action action) {
  */
 int main(int argc, char *argv[]) {
     Action action = -1;
-    char *filename = "", *section = "", *item = "", *value = "";
+    char *filename = "", *section = "", *item = "", *value = "", *delimiter = "=";
     char opt;
     opterr = 0;
-    while ((opt = getopt(argc, argv, "audgs:h")) != -1) {
+    while ((opt = getopt(argc, argv, "audgs:f:h")) != -1) {
         switch (opt) {
         case 'a':
             check_action(action);
@@ -139,12 +149,16 @@ int main(int argc, char *argv[]) {
         case 's':
             section = strdup(optarg);
             break;
+        case 'f':
+            delimiter = strdup(optarg);
+            break;
         case 'h':
             printf("A tool for manage ini format config file, it "
                    "can add/update/delete/get config options in global area and particular sections.\n\n"
-                   "Usage: initool option filename [-s section] name [value]\n\n"
+                   "Usage: initool option filename [-s section] [-f delimiter] name [value]\n\n"
                    "Accepted option include:\n-a add option\n-d delete option\n-u update option\n-g get option\n\n"
-                   "Section option:\n-s section name, optional\n");
+                   "Section option:\n-s section name, optional\n"
+                   "Delimiter option:\n-f default is \"=\"\n");
             exit(0);
         case '?' || ':':
             fprintf(stderr, "%s", "cmmandline options error\n");
@@ -169,17 +183,20 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     //printf("action: %d, file: %s, section: %s, item: %s, value: %s\n", action, filename, section, item, value);
-    Line *head = ini_load(filename);
+    Inicfg cfg;
+    cfg.delimiter = strdup(delimiter);
+    Line *head = ini_load(filename, &cfg);
 
     if (action == ADD) {
         Line *line = malloc(sizeof(Line));
         line->data = strdup(item);
         line->data1 = strdup(value);
         line->data2 = strdup(section);
+        line->data3 = strlen(delimiter) > 0 ? delimiter : strdup("=");
         line->type = ITEM;
-        char buf[1024];
+        char buf[2048];
         strcpy(buf, item);
-        strcat(buf, "=");
+        strcat(buf, delimiter);
         strcat(buf, value);
         strcat(buf, "\n");
         line->ptr = strdup(buf);
@@ -241,7 +258,7 @@ int main(int argc, char *argv[]) {
                 
                 char buf[2048];
                 strcpy(buf, item);
-                strcat(buf, "=");
+                strcat(buf, delimiter);
                 strcat(buf, value);
                 strcat(buf, "\n");
                 ptr->ptr = strdup(buf);
@@ -249,18 +266,13 @@ int main(int argc, char *argv[]) {
             ptr = ptr->next;
         }
     }
-    int get_flag = 0;
     if (action == GET && head != NULL) {
         Line *ptr = head->next;
         while (ptr != head) {
             if (ptr->type == ITEM && strcmp(section, ptr->data2) == 0 && strcmp(item, ptr->data) == 0) {
-                printf("%s ", ptr->data1);
-                get_flag = 1;
+                printf("%s\n", ptr->data1);
             }
             ptr = ptr->next;
-        }
-        if (get_flag) {
-            printf("\n");
         }
     }
     //ini_save(head, "/tmp/inifile");
