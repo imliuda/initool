@@ -164,6 +164,10 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "options error, please view the usage.\n");
         exit(1);
     }
+    if (access(filename, R_OK | W_OK) != 0) {
+        fprintf(stderr, "file does't exits\n");
+        exit(1);
+    }
     //printf("action: %d, file: %s, section: %s, item: %s, value: %s\n", action, filename, section, item, value);
     Line *head = ini_load(filename);
 
