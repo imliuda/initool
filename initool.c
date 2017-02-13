@@ -184,25 +184,41 @@ int main(int argc, char *argv[]) {
         strcat(buf, "\n");
         line->ptr = strdup(buf);
 
-        if (strcmp(section, "") == 0) {
-            // add to head
-            head->next->prev = line;
-            line->prev = head;
-            line->next = head->next;
-            head->next = line;
-        } else {
-            Line *ptr = head->next;
-            while (ptr != head) {
-                if (ptr->type == SECTION && strcmp(section, ptr->data) == 0) {
+        Line *ptr = head->next;
+        Line *after = NULL;
+        while (ptr != head) {
+            if (strcmp(section, "") == 0) {
+                // add when section begin or end of file
+                if (ptr->type == SECTION) {
+                    ptr->prev->next = line;
+                    line->prev = ptr->prev;
+                    line->next = ptr;
+                    ptr->prev = line;
+                    break;
+                }
+                if (ptr->next == head) {
                     ptr->next->prev = line;
-                    line->prev = ptr;
                     line->next = ptr->next;
+                    line->prev = ptr;
                     ptr->next = line;
                     break;
                 }
-                ptr = ptr->next;
-            }     
-        }
+            } else {
+                if ((ptr->type == SECTION && strcmp(ptr->data, section) == 0) ||
+                    (ptr->type == ITEM && strcmp(ptr->data2, section) == 0)) {
+                    after = ptr;
+                }
+                if (ptr->type == SECTION && strcmp(section, ptr->data) != 0 && after != NULL ||
+                    ptr->next == head && after != NULL) {
+                    after->next->prev = line;
+                    line->next = after->next;
+                    line->prev = after;
+                    after->next = line;
+                    break;
+                }
+            }
+            ptr = ptr->next;
+        }     
     }
     // may be have some problem
     if (action == DELETE) {
