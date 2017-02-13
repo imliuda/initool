@@ -5,9 +5,9 @@
 #include <regex.h>
 #include <assert.h>
 
-#define RE_SECTION  "[:blank:]*\\[(.+?)\\][:black:]*"
-#define RE_COMMENT  "[:blank:]*([;#]{1,1}).*"
-#define RE_ITEM     "[:blank:]*([a-zA-Z0-9_-]+)[:blank:]*=[:blank:]*(.*)"
+#define RE_SECTION  "[[:blank:]]*\\[(.+?)\\][[:blank:]]*"
+#define RE_COMMENT  "[[:blank:]]*([;#]{1,1}).*"
+#define RE_ITEM     "[[:blank:]]*([a-zA-Z0-9_-]+)[[:blank:]]*=[[:blank:]]*(.*)"
 
 typedef enum {ADD, UPDATE, DELETE, GET} Action;
 typedef enum {ITEM, SECTION, COMMENT, UNKNOWN} LineType;
@@ -24,21 +24,18 @@ struct _Line {
 };
 
 Line *list_new() {
-    Line *p = NULL;
+    Line *p = malloc(sizeof(Line));
+    p->next = p;
+    p->prev = p;
     return p;
 }
 
 Line *list_append(Line *list, Line *line) {
-    if (list == NULL) {
-        list = line;
-        list->prev = list;
-        list->next = list;
-    } else {
-        list->prev->next = line;
-        line->prev = list->prev;
-        line->next = list;
-        list->prev = line;
-    }
+    list->prev->next = line;
+    line->prev = list->prev;
+    line->next = list;
+    list->prev = line;
+    return list;
 }
 
 Line *ini_load(const char *filename) {
@@ -80,7 +77,7 @@ Line *ini_load(const char *filename) {
         } else {
             l->type = UNKNOWN;
         }
-        list = list_append(list, l);
+        list_append(list, l);
         line = NULL;
     }
 
@@ -97,13 +94,11 @@ void ini_save(Line *list, char *filename) {
     if (fp == NULL) {
         perror("error open file");
     }
-    Line *ptr = list;
-    if (list != NULL) {
-        do {
+    Line *ptr = list->next;
+    while(ptr != list) {
             fputs(ptr->ptr, fp);
             //printf("%s", ptr->ptr);
             ptr = ptr->next;
-        } while (list != ptr);
     }
     fclose(fp);
 }
@@ -145,9 +140,9 @@ int main(int argc, char *argv[]) {
             section = strdup(optarg);
             break;
         case 'h':
-            printf("A tool for manage ini format config file, ii"
-                   "t can add/update/delete/get config options in global area and particular sections.\n\n"
-                   "Usage: initool option filename [-s] name [value]\n\n"
+            printf("A tool for manage ini format config file, it "
+                   "can add/update/delete/get config options in global area and particular sections.\n\n"
+                   "Usage: initool option filename [-s section] name [value]\n\n"
                    "Accepted option include:\n-a add option\n-d delete option\n-u update option\n-g get option\n\n"
                    "Section option:\n-s section name, optional\n");
             exit(0);
@@ -165,10 +160,14 @@ int main(int argc, char *argv[]) {
     if (argc > optind) {
         value = strdup(argv[optind++]);
     }
+    if (strcmp(filename, "") ==0 || strcmp(item, "") == 0) {
+        fprintf(stderr, "options error, please view the usage.\n");
+        exit(1);
+    }
     //printf("action: %d, file: %s, section: %s, item: %s, value: %s\n", action, filename, section, item, value);
     Line *head = ini_load(filename);
 
-    if (action == ADD && head != NULL) {
+    if (action == ADD) {
         Line *line = malloc(sizeof(Line));
         line->data = strdup(item);
         line->data1 = strdup(value);
@@ -182,15 +181,14 @@ int main(int argc, char *argv[]) {
         line->ptr = strdup(buf);
 
         if (strcmp(section, "") == 0) {
-            // replace head
-            head->prev->next = line;
-            line->prev = head->prev;
-            line->next = head;
-            head->prev = line;
-            head = line;
+            // add to head
+            head->next->prev = line;
+            line->prev = head;
+            line->next = head->next;
+            head->next = line;
         } else {
-            Line *ptr = head;
-            do {
+            Line *ptr = head->next;
+            while (ptr != head) {
                 if (ptr->type == SECTION && strcmp(section, ptr->data) == 0) {
                     ptr->next->prev = line;
                     line->prev = ptr;
@@ -199,31 +197,29 @@ int main(int argc, char *argv[]) {
                     break;
                 }
                 ptr = ptr->next;
-            } while (head != ptr);           
+            }     
         }
     }
     // may be have some problem
-    if (action == DELETE && head != NULL) {
-        Line *ptr = head;
-        do {
+    if (action == DELETE) {
+        Line *ptr = head->next;
+        while (ptr != head) {
             if (ptr->type == ITEM && strcmp(section, ptr->data2) == 0 && strcmp(item, ptr->data) == 0) {
                 ptr->prev->next = ptr->next;
                 ptr->next->prev = ptr->prev;
                 // todo free
-                if (head == ptr) {
-                    head = ptr->next;
-                }
+
             }
             ptr = ptr->next;
-        } while (head != ptr);
+        }
     }
-    if (action == UPDATE && head != NULL) {
-        Line *ptr = head;
-        do {
+    if (action == UPDATE) {
+        Line *ptr = head->next;
+        while (ptr != head) {
             if (ptr->type == ITEM && strcmp(section, ptr->data2) == 0 && strcmp(item, ptr->data) == 0) {
                 ptr->data1 = strdup(value);
                 
-                char buf[1024];
+                char buf[2048];
                 strcpy(buf, item);
                 strcat(buf, "=");
                 strcat(buf, value);
@@ -231,17 +227,21 @@ int main(int argc, char *argv[]) {
                 ptr->ptr = strdup(buf);
             }
             ptr = ptr->next;
-        } while (head != ptr);
+        }
     }
+    int get_flag = 0;
     if (action == GET && head != NULL) {
-        Line *ptr = head;
-        do {
+        Line *ptr = head->next;
+        while (ptr != head) {
             if (ptr->type == ITEM && strcmp(section, ptr->data2) == 0 && strcmp(item, ptr->data) == 0) {
                 printf("%s ", ptr->data1);
+                get_flag = 1;
             }
             ptr = ptr->next;
-        } while (head != ptr);
-        printf("\n");
+        }
+        if (get_flag) {
+            printf("\n");
+        }
     }
     //ini_save(head, "/tmp/inifile");
     ini_save(head, filename);
