@@ -18,7 +18,7 @@ Accepted option include:
 Section option:
 -s section name, optional
 Delimiter option:
--f default is "="
+-b default is "="
 ```
 # Format
 follow is an example code similar to systemd's service configuration.
