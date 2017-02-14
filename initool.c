@@ -47,10 +47,10 @@ Line *ini_load(const char *filename, const Inicfg *cfg) {
     regex_t     preg_comment;
     regex_t     preg_item;
 
-    char *RE_SECTION = "[[:blank:]]*\\[(.+?)\\][[:blank:]]*";
-    char *RE_COMMENT = "[[:blank:]]*([;#]{1,1}).*";
+    char *RE_SECTION = "^[[:blank:]]*\\[(.+?)\\][[:blank:]]*";
+    char *RE_COMMENT = "^[[:blank:]]*([;#]{1,1}).*";
     char RE_ITEM[256];
-    sprintf(RE_ITEM, "[[:blank:]]*([a-zA-Z0-9_-]+)[[:blank:]]*([%s])[[:blank:]]*(.*)", cfg->delimiter);
+    sprintf(RE_ITEM, "^[[:blank:]]*([a-zA-Z0-9_-]+)[[:blank:]]*([%s])[[:blank:]]*(.*)", cfg->delimiter);
 
     if (regcomp(&preg_comment, RE_COMMENT, REG_EXTENDED | REG_NEWLINE) != 0) {
         perror("regcomp");
@@ -68,14 +68,14 @@ Line *ini_load(const char *filename, const Inicfg *cfg) {
     while (getline(&line, &nouse, fp) != -1) {
         Line *l = malloc(sizeof(Line));
         l->ptr = line;
-        if (regexec(&preg_comment, line, 2, pmatch, REG_NOTBOL | REG_NOTEOL) == 0) {
+        if (regexec(&preg_comment, line, 2, pmatch, 0) == 0) {
             l->type = COMMENT;
-        } else if (regexec(&preg_section, line, 2, pmatch, REG_NOTBOL | REG_NOTEOL) == 0) {
+        } else if (regexec(&preg_section, line, 2, pmatch, 0) == 0) {
             l->type = SECTION;
             char *section = strndup(line + pmatch[1].rm_so, pmatch[1].rm_eo - pmatch[1].rm_so);
             cur_section = strdup(section);
             l->data = section;
-        } else if (regexec(&preg_item, line, 4, pmatch, REG_NOTBOL | REG_NOTEOL) == 0) {
+        } else if (regexec(&preg_item, line, 4, pmatch, 0) == 0) {
             l->type = ITEM;
             char *item = strndup(line + pmatch[1].rm_so, pmatch[1].rm_eo - pmatch[1].rm_so);
             char *value = strndup(line + pmatch[3].rm_so, pmatch[3].rm_eo - pmatch[3].rm_so);
@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
     char *filename = "", *section = "", *item = "", *value = "", *delimiter = "=";
     char opt;
     opterr = 0;
-    while ((opt = getopt(argc, argv, "audgs:f:h")) != -1) {
+    while ((opt = getopt(argc, argv, "audgs:b:h")) != -1) {
         switch (opt) {
         case 'a':
             check_action(action);
@@ -149,7 +149,7 @@ int main(int argc, char *argv[]) {
         case 's':
             section = strdup(optarg);
             break;
-        case 'f':
+        case 'b':
             delimiter = strdup(optarg);
             break;
         case 'h':
@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
                    "Usage: initool option filename [-s section] [-f delimiter] name [value]\n\n"
                    "Accepted option include:\n-a add option\n-d delete option\n-u update option\n-g get option\n\n"
                    "Section option:\n-s section name, optional\n"
-                   "Delimiter option:\n-f default is \"=\"\n");
+                   "Delimiter option:\n-b default is \"=\"\n");
             exit(0);
         case '?' || ':':
             fprintf(stderr, "%s", "cmmandline options error\n");
